@@ -2,10 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"siplab/app/model"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -109,4 +112,83 @@ func (r *RoomRepository) CreateTool(ctx context.Context, req *model.CreateToolRe
 	}
 
 	return &tl, nil
+}
+func (r *RoomRepository) GetRoomByID(ctx context.Context, id int) (*model.Room, error) {
+	query := `SELECT id, code, name, capacity, location, status, created_at, updated_at
+			  FROM rooms WHERE id = $1`
+
+	var rm model.Room
+	err := r.pool.QueryRow(ctx, query, id).
+		Scan(&rm.ID, &rm.Code, &rm.Name, &rm.Capacity, &rm.Location, &rm.Status, &rm.CreatedAt, &rm.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("gagal mengambil detail ruangan: %w", err)
+	}
+
+	return &rm, nil
+}
+
+func (r *RoomRepository) UpdateRoom(ctx context.Context, id int, req *model.UpdateRoomRequest) (*model.Room, error) {
+	query := `UPDATE rooms
+			  SET name = $2, capacity = $3, location = $4, status = $5, updated_at = CURRENT_TIMESTAMP
+			  WHERE id = $1
+			  RETURNING id, code, name, capacity, location, status, created_at, updated_at`
+
+	var rm model.Room
+	err := r.pool.QueryRow(ctx, query, id, req.Name, req.Capacity, req.Location, req.Status).
+		Scan(&rm.ID, &rm.Code, &rm.Name, &rm.Capacity, &rm.Location, &rm.Status, &rm.CreatedAt, &rm.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("gagal mengubah ruangan: %w", err)
+	}
+
+	return &rm, nil
+}
+
+func (r *RoomRepository) DeleteRoom(ctx context.Context, id int) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM rooms WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("gagal menghapus ruangan: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetAvailability menghitung jumlah peminjaman berstatus approved pada rentang
+// [dayStart, dayEnd) untuk setiap ruangan, lalu menandai ketersediaannya.
+func (r *RoomRepository) GetAvailability(ctx context.Context, dayStart, dayEnd time.Time) ([]model.RoomAvailability, error) {
+	query := `SELECT r.id, r.code, r.name, r.capacity, r.location, r.status, r.created_at, r.updated_at,
+					 COUNT(b.id) FILTER (WHERE b.status = 'approved') AS booked_count
+			  FROM rooms r
+			  LEFT JOIN bookings b ON b.room_id = r.id
+				  AND b.start_time < $2 AND b.end_time > $1
+			  GROUP BY r.id
+			  ORDER BY r.id ASC`
+
+	rows, err := r.pool.Query(ctx, query, dayStart, dayEnd)
+	if err != nil {
+		return nil, fmt.Errorf("gagal mengambil ketersediaan ruangan: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]model.RoomAvailability, 0)
+	for rows.Next() {
+		var item model.RoomAvailability
+		if err := rows.Scan(
+			&item.ID, &item.Code, &item.Name, &item.Capacity, &item.Location,
+			&item.Status, &item.CreatedAt, &item.UpdatedAt, &item.BookedCount,
+		); err != nil {
+			return nil, err
+		}
+		item.IsAvailable = item.Status == "AVAILABLE" && item.BookedCount == 0
+		result = append(result, item)
+	}
+
+	return result, rows.Err()
 }

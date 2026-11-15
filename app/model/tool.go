@@ -14,6 +14,14 @@ type Tool struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+// RoomAvailability menggabungkan data master ruang dengan hasil pengecekan
+// jadwal peminjaman yang sudah disetujui (approved) pada tanggal tertentu.
+type RoomAvailability struct {
+	Room
+	BookedCount int  `json:"booked_count"`
+	IsAvailable bool `json:"is_available"`
+}
+
 type CreateToolRequest struct {
 	RoomID        int    `json:"room_id"`
 	Code          string `json:"code"`
