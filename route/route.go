@@ -12,7 +12,6 @@ import (
 )
 
 // Dependencies mengumpulkan seluruh komponen yang dibutuhkan untuk mendaftarkan route.
-// Anggota 2 dan Anggota 3 cukup menambahkan RoomService, ToolService, dan BookingService di struct ini.
 type Dependencies struct {
 	Pool        *pgxpool.Pool
 	JWT         *helper.JWTManager
@@ -24,11 +23,10 @@ type Dependencies struct {
 	// ToolService *service.ToolService
 
 	// --- SLOT ANGGOTA 3 (Booking) ---
-	// BookingService *service.BookingService
+	BookingService *service.BookingService
 }
 
 // Register memetakan seluruh URL endpoint ke method service beserta middleware penjaganya.
-// File ini berfungsi ganda sebagai peta hak akses seluruh aplikasi SIPLAB.
 func Register(app *fiber.App, deps Dependencies) {
 	api := app.Group("/api/v1")
 	perms := deps.Permissions
@@ -36,7 +34,7 @@ func Register(app *fiber.App, deps Dependencies) {
 	// --- 1. PUBLIK ---
 	api.Get("/health", healthCheck(deps.Pool))
 
-	// --- 2. AUTENTIKASI (Bagian Saya) ---
+	// --- 2. AUTENTIKASI (Anggota 1) ---
 	auth := api.Group("/auth", middleware.RequireJSON)
 	auth.Post("/register", deps.AuthService.Register)
 	auth.Post("/login", middleware.LoginRateLimiter(), deps.AuthService.Login)
@@ -44,12 +42,11 @@ func Register(app *fiber.App, deps Dependencies) {
 	auth.Post("/logout", deps.AuthService.Logout)
 	auth.Get("/me", middleware.RequireAuth(deps.JWT), deps.AuthService.Me)
 
-	// --- 3. MANAJEMEN USER & RBAC (Bagian Saya) ---
+	// --- 3. MANAJEMEN USER & RBAC (Anggota 1) ---
 	users := api.Group("/users",
 		middleware.RequireJSON,
 		middleware.RequireAuth(deps.JWT),
 	)
-	// Keputusan akses tingkat endpoint (tanpa perlu lihat isi baris data) -> dijaga di middleware
 	users.Get("/",
 		middleware.RequirePermission(perms, "user:list"),
 		deps.UserService.List,
@@ -62,7 +59,6 @@ func Register(app *fiber.App, deps Dependencies) {
 		middleware.RequirePermission(perms, "user:delete"),
 		deps.UserService.Delete,
 	)
-	// Keputusan akses bergantung kepemilikan data (ownership) -> diperiksa di dalam UserService
 	users.Get("/:id", deps.UserService.Get)
 	users.Patch("/:id", deps.UserService.Patch)
 
@@ -112,25 +108,22 @@ func Register(app *fiber.App, deps Dependencies) {
 	// =========================================================================
 	// --- 5. SLOT ANGGOTA 3: PEMINJAMAN (BOOKINGS) ---
 	// =========================================================================
-	/*
+	if deps.BookingService != nil {
 		bookings := api.Group("/bookings",
 			middleware.RequireJSON,
 			middleware.RequireAuth(deps.JWT),
 		)
-		// Mahasiswa membuat pengajuan peminjaman
 		bookings.Post("/",
 			middleware.RequirePermission(perms, "booking:create"),
 			deps.BookingService.Create,
 		)
-		// Admin & Laboran memverifikasi (approve/reject/complete) peminjaman
 		bookings.Patch("/:id/verify",
 			middleware.RequirePermission(perms, "booking:verify"),
 			deps.BookingService.Verify,
 		)
-		// List & Get memeriksa ownership (mahasiswa lihat miliknya sendiri, laboran/admin via booking:list:any / booking:read:any)
 		bookings.Get("/", deps.BookingService.List)
 		bookings.Get("/:id", deps.BookingService.Get)
-	*/
+	}
 }
 
 func healthCheck(pool *pgxpool.Pool) fiber.Handler {
