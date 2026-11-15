@@ -37,6 +37,8 @@ func main() {
 	userRepository := repository.NewUserRepository(pool)
 	tokenRepository := repository.NewTokenRepository(pool)
 	roleRepository := repository.NewRoleRepository(pool)
+	roomRepository := repository.NewRoomRepository(pool)
+	bookingRepository := repository.NewBookingRepository(pool)
 
 	// 5. Muat pemetaan RBAC PermissionSet sekali saat startup (fail fast bila gagal)
 	rawPermissions, err := roleRepository.LoadPermissions(context.Background())
@@ -55,14 +57,18 @@ func main() {
 
 	authService := service.NewAuthService(userRepository, tokenRepository, jwtManager, permissions)
 	userService := service.NewUserService(userRepository, permissions)
+	roomService := service.NewRoomService(roomRepository)
+	bookingService := service.NewBookingService(bookingRepository, permissions)
 
 	// 7. Rakit instance Fiber App melalui config.NewApp
 	app := config.NewApp(logger, route.Dependencies{
-		Pool:        pool,
-		JWT:         jwtManager,
-		Permissions: permissions,
-		AuthService: authService,
-		UserService: userService,
+		Pool:           pool,
+		JWT:            jwtManager,
+		Permissions:    permissions,
+		AuthService:    authService,
+		UserService:    userService,
+		RoomService:    roomService,
+		BookingService: bookingService,
 	})
 
 	port := config.GetEnv("APP_PORT", "3000")

@@ -18,17 +18,24 @@ type Dependencies struct {
 	Permissions *helper.PermissionSet
 	AuthService *service.AuthService
 	UserService *service.UserService
+
 	// --- SLOT ANGGOTA 2 (Ruang & Alat) ---
-	// RoomService *service.RoomService
-	// ToolService *service.ToolService
+	RoomService *service.RoomService
 
 	// --- SLOT ANGGOTA 3 (Booking) ---
 	BookingService *service.BookingService
 }
 
 // Register memetakan seluruh URL endpoint ke method service beserta middleware penjaganya.
+// Prefix resmi adalah /api/v1, sedangkan /api disediakan sebagai alias agar dokumentasi
+// dan klien yang lebih lama tetap dapat memanggil endpoint yang sama.
 func Register(app *fiber.App, deps Dependencies) {
-	api := app.Group("/api/v1")
+	for _, prefix := range []string{"/api/v1", "/api"} {
+		registerPrefix(app.Group(prefix), deps)
+	}
+}
+
+func registerPrefix(api fiber.Router, deps Dependencies) {
 	perms := deps.Permissions
 
 	// --- 1. PUBLIK ---
@@ -63,67 +70,65 @@ func Register(app *fiber.App, deps Dependencies) {
 	users.Patch("/:id", deps.UserService.Patch)
 
 	// =========================================================================
-	// --- 4. SLOT ANGGOTA 2: RUANG LAB (ROOMS) & ALAT LAB (TOOLS) ---
+	// --- 4. RUANG LAB (ROOMS) & ALAT LAB (TOOLS) — Anggota 2 ---
 	// =========================================================================
-	/*
-		rooms := api.Group("/rooms",
-			middleware.RequireJSON,
-			middleware.RequireAuth(deps.JWT),
-		)
-		rooms.Get("/", deps.RoomService.List)
-		rooms.Get("/:id", deps.RoomService.Get)
-		rooms.Post("/",
-			middleware.RequirePermission(perms, "room:create"),
-			deps.RoomService.Create,
-		)
-		rooms.Put("/:id",
-			middleware.RequirePermission(perms, "room:update"),
-			deps.RoomService.Replace,
-		)
-		rooms.Delete("/:id",
-			middleware.RequirePermission(perms, "room:delete"),
-			deps.RoomService.Delete,
-		)
+	rooms := api.Group("/rooms",
+		middleware.RequireJSON,
+		middleware.RequireAuth(deps.JWT),
+	)
+	// Route statis /availability wajib didaftarkan sebelum /:id agar tidak tertangkap sebagai id.
+	rooms.Get("/availability", deps.RoomService.Availability)
+	rooms.Get("/", deps.RoomService.List)
+	rooms.Get("/:id", deps.RoomService.Get)
+	rooms.Post("/",
+		middleware.RequirePermission(perms, "room:create"),
+		deps.RoomService.Create,
+	)
+	rooms.Put("/:id",
+		middleware.RequirePermission(perms, "room:update"),
+		deps.RoomService.Replace,
+	)
+	rooms.Delete("/:id",
+		middleware.RequirePermission(perms, "room:delete"),
+		deps.RoomService.Delete,
+	)
 
-		tools := api.Group("/tools",
-			middleware.RequireJSON,
-			middleware.RequireAuth(deps.JWT),
-		)
-		tools.Get("/", deps.ToolService.List)
-		tools.Get("/:id", deps.ToolService.Get)
-		tools.Post("/",
-			middleware.RequirePermission(perms, "tool:create"),
-			deps.ToolService.Create,
-		)
-		tools.Put("/:id",
-			middleware.RequirePermission(perms, "tool:update"),
-			deps.ToolService.Replace,
-		)
-		tools.Delete("/:id",
-			middleware.RequirePermission(perms, "tool:delete"),
-			deps.ToolService.Delete,
-		)
-	*/
+	tools := api.Group("/tools",
+		middleware.RequireJSON,
+		middleware.RequireAuth(deps.JWT),
+	)
+	tools.Get("/", deps.RoomService.ListTools)
+	tools.Post("/",
+		middleware.RequirePermission(perms, "tool:create"),
+		deps.RoomService.CreateTool,
+	)
 
 	// =========================================================================
-	// --- 5. SLOT ANGGOTA 3: PEMINJAMAN (BOOKINGS) ---
+	// --- 5. PEMINJAMAN (BOOKINGS) — Anggota 3 ---
 	// =========================================================================
-	if deps.BookingService != nil {
-		bookings := api.Group("/bookings",
-			middleware.RequireJSON,
-			middleware.RequireAuth(deps.JWT),
-		)
-		bookings.Post("/",
-			middleware.RequirePermission(perms, "booking:create"),
-			deps.BookingService.Create,
-		)
-		bookings.Patch("/:id/verify",
-			middleware.RequirePermission(perms, "booking:verify"),
-			deps.BookingService.Verify,
-		)
-		bookings.Get("/", deps.BookingService.List)
-		bookings.Get("/:id", deps.BookingService.Get)
-	}
+	bookings := api.Group("/bookings",
+		middleware.RequireJSON,
+		middleware.RequireAuth(deps.JWT),
+	)
+	bookings.Get("/", deps.BookingService.List)
+	bookings.Post("/",
+		middleware.RequirePermission(perms, "booking:create"),
+		deps.BookingService.Create,
+	)
+	bookings.Get("/:id", deps.BookingService.Get)
+
+	// Verifikasi Laboran/Admin: /verify adalah nama resmi, /status disediakan sebagai alias.
+	bookings.Patch("/:id/verify",
+		middleware.RequirePermission(perms, "booking:verify"),
+		deps.BookingService.Verify,
+	)
+	bookings.Patch("/:id/status",
+		middleware.RequirePermission(perms, "booking:verify"),
+		deps.BookingService.Verify,
+	)
+
+	// Pembatalan oleh peminjam (ownership diperiksa di service).
+	bookings.Patch("/:id/cancel", deps.BookingService.Cancel)
 }
 
 func healthCheck(pool *pgxpool.Pool) fiber.Handler {
