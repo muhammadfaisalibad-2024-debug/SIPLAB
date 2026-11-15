@@ -96,3 +96,14 @@ func TestValidateStatusTransition(t *testing.T) {
 		t.Error("completed -> rejected seharusnya ditolak")
 	}
 }
+func TestValidateStatusTransition_Cancel(t *testing.T) {
+	if !ValidateStatusTransition(model.BookingStatusPending, model.BookingStatusCancelled) {
+		t.Error("pending -> cancelled seharusnya diizinkan")
+	}
+	if !ValidateStatusTransition(model.BookingStatusApproved, model.BookingStatusCancelled) {
+		t.Error("approved -> cancelled seharusnya diizinkan")
+	}
+	if ValidateStatusTransition(model.BookingStatusCancelled, model.BookingStatusApproved) {
+		t.Error("cancelled -> approved seharusnya ditolak")
+	}
+}

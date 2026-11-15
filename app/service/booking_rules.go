@@ -48,15 +48,18 @@ func CanAccessBooking(caller model.AuthUser, ownerUserID int, perms *helper.Perm
 }
 
 // ValidateStatusTransition memastikan perubahan status verifikasi peminjaman mengikuti alur yang sah:
-// - pending -> approved atau rejected
-// - approved -> completed
-// - rejected / completed adalah status final dan tidak dapat diubah lagi.
+// - pending -> approved, rejected, atau cancelled
+// - approved -> completed atau cancelled
+// - rejected / completed / cancelled adalah status final dan tidak dapat diubah lagi.
 func ValidateStatusTransition(currentStatus, nextStatus string) bool {
 	switch currentStatus {
 	case model.BookingStatusPending:
-		return nextStatus == model.BookingStatusApproved || nextStatus == model.BookingStatusRejected
+		return nextStatus == model.BookingStatusApproved ||
+			nextStatus == model.BookingStatusRejected ||
+			nextStatus == model.BookingStatusCancelled
 	case model.BookingStatusApproved:
-		return nextStatus == model.BookingStatusCompleted
+		return nextStatus == model.BookingStatusCompleted ||
+			nextStatus == model.BookingStatusCancelled
 	default:
 		return false
 	}

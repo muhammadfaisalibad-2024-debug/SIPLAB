@@ -7,8 +7,20 @@ const (
 	BookingStatusPending   = "pending"
 	BookingStatusApproved  = "approved"
 	BookingStatusRejected  = "rejected"
+	BookingStatusCancelled = "cancelled"
 	BookingStatusCompleted = "completed"
 )
+
+// BookingLog mencatat riwayat perubahan status sebuah peminjaman (tabel booking_logs).
+type BookingLog struct {
+	ID         int       `json:"id"`
+	BookingID  int       `json:"booking_id"`
+	ActorID    *int      `json:"actor_id,omitempty"`
+	FromStatus string    `json:"from_status"`
+	ToStatus   string    `json:"to_status"`
+	Note       string    `json:"note,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 // Booking merepresentasikan entitas peminjaman ruangan atau alat laboratorium di SIPLAB.
 type Booking struct {

@@ -17,6 +17,7 @@ type BookingRepository interface {
 	FindByID(ctx context.Context, id int) (model.Booking, error)
 	FindAfterCursor(ctx context.Context, filter model.BookingFilter) ([]model.Booking, error)
 	UpdateVerification(ctx context.Context, id int, status string, verifiedBy int, notes string) (model.Booking, error)
+	Cancel(ctx context.Context, id int, actorID int, note string) (model.Booking, error)
 	HasRoomScheduleConflict(ctx context.Context, roomID int, startTime, endTime time.Time, excludeBookingID int) (bool, error)
 }
 
@@ -156,6 +157,17 @@ func (r *pgBookingRepository) FindAfterCursor(ctx context.Context, f model.Booki
 }
 
 func (r *pgBookingRepository) UpdateVerification(ctx context.Context, id int, status string, verifiedBy int, notes string) (model.Booking, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return model.Booking{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	fromStatus, err := lockBookingStatus(ctx, tx, id)
+	if err != nil {
+		return model.Booking{}, err
+	}
+
 	const q = `
 		UPDATE bookings
 		SET status = $2, verified_by = $3, notes = $4
@@ -163,7 +175,7 @@ func (r *pgBookingRepository) UpdateVerification(ctx context.Context, id int, st
 		RETURNING id, user_id, room_id, tool_id, quantity, purpose, start_time, end_time, status, verified_by, notes, created_at
 	`
 	var out model.Booking
-	err := r.pool.QueryRow(ctx, q, id, status, verifiedBy, notes).Scan(
+	err = tx.QueryRow(ctx, q, id, status, verifiedBy, notes).Scan(
 		&out.ID,
 		&out.UserID,
 		&out.RoomID,
@@ -183,7 +195,90 @@ func (r *pgBookingRepository) UpdateVerification(ctx context.Context, id int, st
 		}
 		return model.Booking{}, err
 	}
+
+	if err := insertBookingLog(ctx, tx, id, verifiedBy, fromStatus, status, notes); err != nil {
+		return model.Booking{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Booking{}, err
+	}
 	return out, nil
+}
+
+// Cancel membatalkan peminjaman milik peminjam dan mencatat perubahannya ke booking_logs.
+func (r *pgBookingRepository) Cancel(ctx context.Context, id int, actorID int, note string) (model.Booking, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return model.Booking{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	fromStatus, err := lockBookingStatus(ctx, tx, id)
+	if err != nil {
+		return model.Booking{}, err
+	}
+
+	const q = `
+		UPDATE bookings
+		SET status = 'cancelled'
+		WHERE id = $1
+		RETURNING id, user_id, room_id, tool_id, quantity, purpose, start_time, end_time, status, verified_by, notes, created_at
+	`
+	var out model.Booking
+	err = tx.QueryRow(ctx, q, id).Scan(
+		&out.ID,
+		&out.UserID,
+		&out.RoomID,
+		&out.ToolID,
+		&out.Quantity,
+		&out.Purpose,
+		&out.StartTime,
+		&out.EndTime,
+		&out.Status,
+		&out.VerifiedBy,
+		&out.Notes,
+		&out.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Booking{}, ErrNotFound
+		}
+		return model.Booking{}, err
+	}
+
+	if err := insertBookingLog(ctx, tx, id, actorID, fromStatus, model.BookingStatusCancelled, note); err != nil {
+		return model.Booking{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Booking{}, err
+	}
+	return out, nil
+}
+
+// lockBookingStatus mengambil status terkini dengan row lock agar dua perubahan status
+// yang bersamaan tidak saling menimpa (mencegah race condition).
+func lockBookingStatus(ctx context.Context, tx pgx.Tx, id int) (string, error) {
+	var status string
+	err := tx.QueryRow(ctx, `SELECT status FROM bookings WHERE id = $1 FOR UPDATE`, id).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return status, nil
+}
+
+// insertBookingLog menulis satu baris audit perubahan status peminjaman.
+func insertBookingLog(ctx context.Context, tx pgx.Tx, bookingID, actorID int, fromStatus, toStatus, note string) error {
+	const q = `
+		INSERT INTO booking_logs (booking_id, actor_id, from_status, to_status, note)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	_, err := tx.Exec(ctx, q, bookingID, actorID, fromStatus, toStatus, note)
+	return err
 }
 
 func (r *pgBookingRepository) HasRoomScheduleConflict(ctx context.Context, roomID int, startTime, endTime time.Time, excludeBookingID int) (bool, error) {

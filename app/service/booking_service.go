@@ -219,3 +219,47 @@ func (s *BookingService) Verify(c *fiber.Ctx) error {
 
 	return helper.Success(c, fiber.StatusOK, "status peminjaman berhasil diverifikasi", updated)
 }
+
+// Cancel membatalkan peminjaman milik peminjam sendiri (PATCH /api/v1/bookings/:id/cancel).
+// Hanya pemilik peminjaman yang boleh membatalkan, dan hanya selama status masih
+// pending atau approved. Perubahan status dicatat ke tabel booking_logs.
+func (s *BookingService) Cancel(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("belum terautentikasi")
+	}
+
+	id, valid := helper.ParamID(c)
+	if !valid {
+		return helper.BadRequest("id harus berupa angka positif")
+	}
+
+	existing, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.NotFound("data peminjaman tidak ditemukan")
+		}
+		return helper.Internal(err)
+	}
+
+	if existing.UserID != current.UserID {
+		return helper.Forbidden("hanya pemilik peminjaman yang boleh membatalkan")
+	}
+
+	if !ValidateStatusTransition(existing.Status, model.BookingStatusCancelled) {
+		return helper.Conflict("peminjaman dengan status " + existing.Status + " tidak dapat dibatalkan")
+	}
+
+	updated, err := s.repo.Cancel(ctx, id, current.UserID, "dibatalkan oleh peminjam")
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.NotFound("data peminjaman tidak ditemukan")
+		}
+		return helper.Internal(err)
+	}
+
+	return helper.Success(c, fiber.StatusOK, "peminjaman berhasil dibatalkan", updated)
+}
