@@ -2,9 +2,11 @@ package config
 
 import (
 	"log"
+	"log/slog"
 	"os"
 	"strconv"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 )
 
@@ -30,4 +32,17 @@ func GetEnvInt(key string, fallback int) int {
 		return val
 	}
 	return fallback
+}
+
+// NewLogger membuat structured logger sederhana menggunakan slog (stdout)
+func NewLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, nil))
+}
+
+// NewApp membuat instance Fiber app dasar untuk Dependency Injection
+func NewApp(logger *slog.Logger, deps interface{}) *fiber.App {
+	app := fiber.New(fiber.Config{
+		AppName: "SIPLAB API",
+	})
+	return app
 }

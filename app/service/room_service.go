@@ -42,7 +42,7 @@ func (s *RoomService) FetchRooms(ctx context.Context, search string, page, limit
 
 func (s *RoomService) AddRoom(ctx context.Context, req *model.CreateRoomRequest) (*model.Room, error) {
 	if req.Code == "" || req.Name == "" {
-		return nil, errors.Println("kode dan nama ruangan tidak boleh kosong")
+		return nil, errors.New("kode dan nama ruangan tidak boleh kosong")
 	}
 	if req.Capacity <= 0 {
 		return nil, errors.New("kapasitas ruangan harus lebih besar dari 0")
