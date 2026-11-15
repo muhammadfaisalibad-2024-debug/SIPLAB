@@ -8,6 +8,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
+	"siplab/helper"
+	"siplab/route"
 )
 
 // LoadEnv memuat file .env ke dalam environment variabel
@@ -39,10 +41,13 @@ func NewLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, nil))
 }
 
-// NewApp membuat instance Fiber app dasar untuk Dependency Injection
-func NewApp(logger *slog.Logger, deps interface{}) *fiber.App {
+// NewApp membuat instance Fiber app, memasang global error handler, dan
+// mendaftarkan seluruh route melalui route.Register.
+func NewApp(logger *slog.Logger, deps route.Dependencies) *fiber.App {
 	app := fiber.New(fiber.Config{
-		AppName: "SIPLAB API",
+		AppName:      "SIPLAB API",
+		ErrorHandler: helper.ErrorHandler(logger),
 	})
+	route.Register(app, deps)
 	return app
 }
